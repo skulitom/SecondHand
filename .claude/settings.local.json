@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "mcp__second-hand__get_cursor_position",
+      "mcp__second-hand__click",
+      "mcp__second-hand__double_click",
+      "Bash(npm run build:*)",
+      "mcp__second-hand__show_cursor",
+      "mcp__second-hand__get_screen_size",
+      "mcp__second-hand__move_cursor",
+      "mcp__second-hand__drag"
+    ],
+    "deny": []
+  }
+}
