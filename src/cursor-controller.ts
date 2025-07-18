@@ -68,6 +68,9 @@ export class CursorController {
     // Update overlay if visible
     if (this.cursorVisible) {
       await this.updateOverlay();
+      
+      // Add a small delay to allow animation to be visible
+      await new Promise(resolve => setTimeout(resolve, 350));
     }
   }
 

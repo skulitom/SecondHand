@@ -6,8 +6,16 @@ using System.IO;
 class CursorOverlay : Form
 {
     private System.Windows.Forms.Timer updateTimer;
+    private System.Windows.Forms.Timer animationTimer;
     private string positionFile = @"C:\temp\cursor_pos.txt";
     private string hideFile = @"C:\temp\cursor_hide.txt";
+    
+    // Animation properties
+    private Point targetPosition;
+    private Point currentPosition;
+    private DateTime animationStartTime;
+    private TimeSpan animationDuration = TimeSpan.FromMilliseconds(800); // 800ms animation
+    private bool isAnimating = false;
     
     public CursorOverlay()
     {
@@ -24,13 +32,22 @@ class CursorOverlay : Form
         this.Text = "SecondCursor";
         this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.DoubleBuffer, true);
         
-        // Setup timer for updates
+        // Initialize positions
+        currentPosition = this.Location;
+        targetPosition = this.Location;
+        
+        // Setup timer for position updates
         updateTimer = new System.Windows.Forms.Timer();
         updateTimer.Interval = 100;
         updateTimer.Tick += UpdatePosition;
         updateTimer.Start();
         
-        Console.WriteLine("Orange cursor overlay started");
+        // Setup animation timer
+        animationTimer = new System.Windows.Forms.Timer();
+        animationTimer.Interval = 16; // ~60 FPS
+        animationTimer.Tick += AnimationTick;
+        
+        Console.WriteLine("Orange cursor overlay started with animations");
     }
     
     private void UpdatePosition(object sender, EventArgs e)
@@ -46,7 +63,7 @@ class CursorOverlay : Form
                 return;
             }
             
-            // Update position
+            // Update target position from file
             if (File.Exists(positionFile))
             {
                 string content = File.ReadAllText(positionFile).Trim();
@@ -57,7 +74,11 @@ class CursorOverlay : Form
                     {
                         if (int.TryParse(coords[0], out int x) && int.TryParse(coords[1], out int y))
                         {
-                            this.Location = new Point(x, y); // Position cursor at exact point
+                            Point newTarget = new Point(x, y);
+                            if (newTarget != targetPosition)
+                            {
+                                StartAnimation(newTarget);
+                            }
                         }
                     }
                 }
@@ -70,6 +91,46 @@ class CursorOverlay : Form
         {
             Console.WriteLine($"Error: {ex.Message}");
         }
+    }
+    
+    private void StartAnimation(Point newTarget)
+    {
+        targetPosition = newTarget;
+        currentPosition = this.Location;
+        animationStartTime = DateTime.Now;
+        isAnimating = true;
+        animationTimer.Start();
+        Console.WriteLine($"Starting animation to ({newTarget.X}, {newTarget.Y})");
+    }
+    
+    private void AnimationTick(object sender, EventArgs e)
+    {
+        if (!isAnimating) return;
+        
+        DateTime now = DateTime.Now;
+        TimeSpan elapsed = now - animationStartTime;
+        
+        if (elapsed >= animationDuration)
+        {
+            // Animation complete
+            this.Location = targetPosition;
+            isAnimating = false;
+            animationTimer.Stop();
+            Console.WriteLine($"Animation complete at ({targetPosition.X}, {targetPosition.Y})");
+            return;
+        }
+        
+        // Calculate progress (0 to 1)
+        double progress = elapsed.TotalMilliseconds / animationDuration.TotalMilliseconds;
+        
+        // Apply easing function (ease-out cubic)
+        double easedProgress = 1 - Math.Pow(1 - progress, 3);
+        
+        // Interpolate position
+        int x = (int)(currentPosition.X + (targetPosition.X - currentPosition.X) * easedProgress);
+        int y = (int)(currentPosition.Y + (targetPosition.Y - currentPosition.Y) * easedProgress);
+        
+        this.Location = new Point(x, y);
     }
     
     protected override void OnPaint(PaintEventArgs e)

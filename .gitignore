@@ -34,3 +34,21 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# .NET build artifacts
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Cursor temp files
+**/cursor_*.txt
+nul
+"C*tempcursor_*.txt"
+
+# .NET specific
+*.AssemblyInfo.cs
+*.AssemblyInfoInputs.cache
+*.csproj.FileListAbsolute.txt
+*.sourcelink.json
