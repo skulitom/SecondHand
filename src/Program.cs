@@ -74,7 +74,9 @@ class CursorOverlay : Form
                     {
                         if (int.TryParse(coords[0], out int x) && int.TryParse(coords[1], out int y))
                         {
-                            Point newTarget = new Point(x, y);
+                            // Offset the form position so the cursor tip appears at the target coordinates
+                            // Position form with offset to ensure cursor is fully visible
+                            Point newTarget = new Point(x - 5, y - 5);
                             if (newTarget != targetPosition)
                             {
                                 StartAnimation(newTarget);
@@ -141,16 +143,18 @@ class CursorOverlay : Form
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         
         // Draw orange cursor that looks like Windows cursor
-        // Main cursor body (arrow shape)
+        // Main cursor body (arrow shape) - offset so tip appears at intended coordinates
+        int offsetX = 5;
+        int offsetY = 5;
         Point[] cursorPoints = {
-            new Point(0, 0),    // Top point
-            new Point(0, 20),   // Left bottom
-            new Point(7, 15),   // Inner point
-            new Point(12, 24),  // Right bottom outer
-            new Point(15, 22),  // Right bottom inner
-            new Point(10, 13),  // Right inner
-            new Point(18, 11),  // Right top
-            new Point(0, 0)     // Close path
+            new Point(0 + offsetX, 0 + offsetY),    // Top point
+            new Point(0 + offsetX, 20 + offsetY),   // Left bottom
+            new Point(7 + offsetX, 15 + offsetY),   // Inner point
+            new Point(12 + offsetX, 24 + offsetY),  // Right bottom outer
+            new Point(15 + offsetX, 22 + offsetY),  // Right bottom inner
+            new Point(10 + offsetX, 13 + offsetY),  // Right inner
+            new Point(18 + offsetX, 11 + offsetY),  // Right top
+            new Point(0 + offsetX, 0 + offsetY)     // Close path
         };
         
         // Fill cursor with orange
@@ -169,14 +173,14 @@ class CursorOverlay : Form
         using (Pen whitePen = new Pen(Color.White, 1))
         {
             Point[] innerPoints = {
-                new Point(1, 1),
-                new Point(1, 18),
-                new Point(7, 14),
-                new Point(11, 22),
-                new Point(13, 21),
-                new Point(9, 12),
-                new Point(16, 10),
-                new Point(1, 1)
+                new Point(1 + offsetX, 1 + offsetY),
+                new Point(1 + offsetX, 18 + offsetY),
+                new Point(7 + offsetX, 14 + offsetY),
+                new Point(11 + offsetX, 22 + offsetY),
+                new Point(13 + offsetX, 21 + offsetY),
+                new Point(9 + offsetX, 12 + offsetY),
+                new Point(16 + offsetX, 10 + offsetY),
+                new Point(1 + offsetX, 1 + offsetY)
             };
             g.DrawPolygon(whitePen, innerPoints);
         }

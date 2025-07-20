@@ -2,6 +2,7 @@ import { mouse, screen, Button, Point } from '@nut-tree-fork/nut-js';
 import { spawn, ChildProcess } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+// import screenshot from 'screenshot-desktop'; // Removed due to Windows compatibility issues
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -100,9 +101,15 @@ export class CursorController {
     // Move system cursor to virtual position
     await mouse.setPosition(new Point(this.virtualX, this.virtualY));
     
+    // Small delay to ensure cursor position is registered
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Perform click
     const nutButton = this.mapButton(button);
     await mouse.click(nutButton);
+    
+    // Small delay before restoring cursor position
+    await new Promise(resolve => setTimeout(resolve, 50));
     
     // Restore original cursor position
     if (this.originalCursorPosition) {
@@ -219,6 +226,91 @@ export class CursorController {
     } else {
       await this.hideOverlay();
     }
+  }
+
+  async takeScreenshot(options: { format?: 'png' | 'jpg' } = {}): Promise<Buffer> {
+    const { format = 'png' } = options;
+    
+    // Use PowerShell screenshot directly due to compatibility issues with screenshot packages
+    return await this.takeScreenshotWithPowerShell(format);
+  }
+
+  private async takeScreenshotWithPowerShell(format: 'png' | 'jpg'): Promise<Buffer> {
+    const { spawn } = await import('child_process');
+    const { promisify } = await import('util');
+    const fs = await import('fs');
+    const path = await import('path');
+    const { randomUUID } = await import('crypto');
+    
+    const tempDir = 'C:\\temp';
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const tempFile = path.join(tempDir, `screenshot_${randomUUID()}.${format}`);
+    
+    const psScript = `
+      Add-Type -AssemblyName System.Drawing
+      Add-Type -AssemblyName System.Windows.Forms
+      
+      $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+      $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
+      $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+      
+      $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $screen.Bounds.Size)
+      
+      $imageFormat = [System.Drawing.Imaging.ImageFormat]::${format.toUpperCase() === 'JPG' ? 'Jpeg' : 'Png'}
+      $bitmap.Save("${tempFile}", $imageFormat)
+      
+      $graphics.Dispose()
+      $bitmap.Dispose()
+      
+      Write-Host "Screenshot saved to: ${tempFile}"
+    `;
+    
+    return new Promise((resolve, reject) => {
+      const process = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', psScript], {
+        windowsHide: true,
+        stdio: 'pipe'
+      });
+      
+      let output = '';
+      let error = '';
+      
+      if (process.stdout) {
+        process.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+      }
+      
+      if (process.stderr) {
+        process.stderr.on('data', (data) => {
+          error += data.toString();
+        });
+      }
+      
+      process.on('exit', (code) => {
+        if (code === 0) {
+          try {
+            // Read the screenshot file
+            const buffer = fs.readFileSync(tempFile);
+            
+            // Clean up temp file
+            fs.unlinkSync(tempFile);
+            
+            resolve(buffer);
+          } catch (readError) {
+            reject(new Error(`Failed to read screenshot file: ${readError}`));
+          }
+        } else {
+          reject(new Error(`PowerShell screenshot failed with code ${code}: ${error}`));
+        }
+      });
+      
+      process.on('error', (err) => {
+        reject(new Error(`PowerShell process error: ${err}`));
+      });
+    });
   }
 
   private mapButton(button: string): Button {
@@ -397,8 +489,12 @@ export class CursorController {
         fs.mkdirSync(tempDir, { recursive: true });
       }
       
+      // No offset needed - cursor should appear exactly where clicks happen
+      const adjustedX = this.virtualX;
+      const adjustedY = this.virtualY;
+      
       // Write position to file
-      fs.writeFileSync(path.join(tempDir, 'cursor_pos.txt'), `${this.virtualX},${this.virtualY}`);
+      fs.writeFileSync(path.join(tempDir, 'cursor_pos.txt'), `${adjustedX},${adjustedY}`);
     } catch (error) {
       console.error('Error writing position file:', error);
     }

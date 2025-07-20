@@ -9,7 +9,9 @@
       "mcp__second-hand__show_cursor",
       "mcp__second-hand__get_screen_size",
       "mcp__second-hand__move_cursor",
-      "mcp__second-hand__drag"
+      "mcp__second-hand__drag",
+      "Bash(npm install:*)",
+      "mcp__second-hand__take_screenshot"
     ],
     "deny": []
   }

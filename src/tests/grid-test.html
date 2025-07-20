@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Cursor Accuracy Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        .grid {
+            display: grid;
+            gap: 1px;
+            background: #111;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        .grid-cell {
+            background: #222;
+            border: 1px solid #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #555;
+            user-select: none;
+        }
+        
+        .grid-cell.target {
+            background: #0080ff;
+            color: #fff;
+            font-weight: bold;
+        }
+        
+        .grid-cell.hit {
+            background: #00ff00;
+            color: #000;
+        }
+        
+        .grid-cell.miss {
+            background: #ff0000;
+            color: #fff;
+        }
+        
+        .stats {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        
+        .final-score {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 24px;
+            z-index: 2000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="grid" id="grid"></div>
+    
+    <div class="stats" id="stats">
+        Test: <span id="currentTest">0</span>/10 | 
+        Hits: <span id="hits">0</span> | 
+        Accuracy: <span id="accuracy">0%</span>
+    </div>
+    
+    <div class="final-score" id="finalScore">
+        <div>Test Complete!</div>
+        <div>Final Accuracy: <span id="finalAccuracy">0%</span></div>
+        <div>Hits: <span id="finalHits">0</span>/10</div>
+        <div style="margin-top: 20px; font-size: 16px;">Click anywhere to restart</div>
+    </div>
+
+    <script>
+        class GridTest {
+            constructor() {
+                this.grid = document.getElementById('grid');
+                this.currentTest = 0;
+                this.hits = 0;
+                this.currentTarget = null;
+                this.isTestActive = false;
+                this.autoTestActive = false;
+                this.maxTests = 10;
+                
+                this.initializeGrid();
+                this.startTest();
+            }
+            
+            initializeGrid() {
+                // Calculate grid size to fill screen
+                const cellSize = 40;
+                const cols = Math.floor(window.innerWidth / cellSize);
+                const rows = Math.floor(window.innerHeight / cellSize);
+                
+                this.grid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+                this.grid.innerHTML = '';
+                
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'grid-cell';
+                        cell.dataset.row = row;
+                        cell.dataset.col = col;
+                        
+                        cell.addEventListener('click', (e) => this.handleCellClick(e, row, col));
+                        this.grid.appendChild(cell);
+                    }
+                }
+            }
+            
+            startTest() {
+                this.isTestActive = true;
+                this.autoTestActive = false; // Don't auto-click, wait for manual/MCP clicks
+                this.generateTarget();
+            }
+            
+            async runAutoTest() {
+                // This function will be called by MCP when ready to click
+                if (!this.currentTarget || this.currentTest >= this.maxTests) return;
+                
+                const targetCell = this.currentTarget;
+                const rect = targetCell.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                try {
+                    // Test if MCP functions are available
+                    if (typeof window.mcpCursor !== 'undefined') {
+                        await window.mcpCursor.moveAndClick(centerX, centerY);
+                    } else {
+                        console.log(`Target at (${centerX}, ${centerY}) - waiting for manual click`);
+                    }
+                } catch (error) {
+                    console.error('MCP click error:', error);
+                }
+            }
+            
+            generateTarget() {
+                if (!this.isTestActive || this.currentTest >= this.maxTests) return;
+                
+                // Clear previous target
+                if (this.currentTarget) {
+                    this.currentTarget.classList.remove('target');
+                }
+                
+                // Clear all previous hit/miss states for fresh test
+                document.querySelectorAll('.grid-cell.hit, .grid-cell.miss').forEach(cell => {
+                    cell.classList.remove('hit', 'miss');
+                });
+                
+                const cells = document.querySelectorAll('.grid-cell');
+                if (cells.length === 0) {
+                    this.endTest();
+                    return;
+                }
+                
+                const randomCell = cells[Math.floor(Math.random() * cells.length)];
+                randomCell.classList.add('target');
+                this.currentTarget = randomCell;
+                
+                // Don't increment test counter here - only on actual clicks
+                this.updateStats();
+            }
+            
+            handleCellClick(event, row, col) {
+                if (!this.isTestActive) {
+                    if (this.currentTest >= this.maxTests) {
+                        // Restart test
+                        this.resetTest();
+                    }
+                    return;
+                }
+                
+                const cell = event.target;
+                
+                if (cell === this.currentTarget) {
+                    this.handleHit(cell);
+                } else {
+                    this.handleMiss(cell);
+                }
+            }
+            
+            handleHit(cell) {
+                cell.classList.remove('target');
+                cell.classList.add('hit');
+                this.hits++;
+                this.currentTest++; // Increment test counter on actual click
+                this.currentTarget = null;
+                this.updateStats();
+                
+                if (this.currentTest >= this.maxTests) {
+                    this.endTest();
+                } else {
+                    setTimeout(() => {
+                        this.generateTarget();
+                        // Don't auto-run test - wait for next click
+                    }, 800);
+                }
+            }
+            
+            handleMiss(cell) {
+                if (cell === this.currentTarget) {
+                    cell.classList.remove('target');
+                    cell.classList.add('miss');
+                    this.currentTest++; // Increment test counter on actual click (miss)
+                    this.currentTarget = null;
+                    this.updateStats();
+                    
+                    if (this.currentTest >= this.maxTests) {
+                        this.endTest();
+                    } else {
+                        setTimeout(() => {
+                            this.generateTarget();
+                            // Don't auto-run test - wait for next click
+                        }, 800);
+                    }
+                } else {
+                    // Clicked wrong cell (not the target) - count as miss
+                    cell.classList.add('miss');
+                    this.currentTest++; // Increment test counter on actual click (wrong cell)
+                    this.updateStats();
+                    
+                    if (this.currentTest >= this.maxTests) {
+                        this.endTest();
+                    } else {
+                        setTimeout(() => {
+                            this.generateTarget();
+                            // Don't auto-run test - wait for next click
+                        }, 800);
+                    }
+                }
+            }
+            
+            updateStats() {
+                document.getElementById('currentTest').textContent = this.currentTest;
+                document.getElementById('hits').textContent = this.hits;
+                
+                const accuracy = this.currentTest > 0 ? 
+                    Math.round((this.hits / this.currentTest) * 100) : 0;
+                document.getElementById('accuracy').textContent = accuracy + '%';
+            }
+            
+            resetTest() {
+                this.isTestActive = false;
+                this.autoTestActive = false;
+                this.currentTest = 0;
+                this.hits = 0;
+                this.currentTarget = null;
+                
+                document.getElementById('finalScore').style.display = 'none';
+                
+                // Clear all cell states
+                document.querySelectorAll('.grid-cell').forEach(cell => {
+                    cell.classList.remove('target', 'hit', 'miss');
+                });
+                
+                this.updateStats();
+                
+                // Restart after a short delay
+                setTimeout(() => this.startTest(), 1000);
+            }
+            
+            endTest() {
+                this.isTestActive = false;
+                this.autoTestActive = false;
+                
+                const accuracy = this.currentTest > 0 ? Math.round((this.hits / this.currentTest) * 100) : 0;
+                
+                document.getElementById('finalAccuracy').textContent = accuracy + '%';
+                document.getElementById('finalHits').textContent = `${this.hits}/${this.currentTest}`;
+                document.getElementById('finalScore').style.display = 'block';
+                
+                console.log(`Test Complete! Score: ${this.hits}/${this.currentTest} (${accuracy}%)`);
+            }
+            
+            sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+        
+        // Initialize the test
+        const gridTest = new GridTest();
+        
+        // Expose global functions for MCP integration
+        window.gridTest = gridTest;
+        
+        // Function to start MCP automated testing
+        window.startMCPTest = async function() {
+            if (gridTest.currentTarget && gridTest.currentTest < gridTest.maxTests) {
+                await gridTest.runAutoTest();
+            }
+        };
+    </script>
+    
+    <!-- MCP Bridge Integration -->
+    <script src="mcp-browser-bridge.js"></script>
+</body>
+</html>

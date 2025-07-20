@@ -145,6 +145,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['visible'],
         },
       },
+      {
+        name: 'take_screenshot',
+        description: 'Take a screenshot of the current screen',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            format: {
+              type: 'string',
+              enum: ['png', 'jpg'],
+              description: 'Image format for the screenshot',
+              default: 'png',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -277,6 +293,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `Cursor overlay ${args.visible ? 'shown' : 'hidden'}`,
+            },
+          ],
+        };
+
+      case 'take_screenshot':
+        const format = args?.format === 'jpg' ? 'jpg' : 'png';
+        
+        const screenshotBuffer = await cursorController.takeScreenshot({ format });
+        
+        return {
+          content: [
+            {
+              type: 'image',
+              data: screenshotBuffer.toString('base64'),
+              mimeType: format === 'jpg' ? 'image/jpeg' : 'image/png',
+            },
+            {
+              type: 'text',
+              text: `Screenshot taken (${format.toUpperCase()}, ${screenshotBuffer.length} bytes)`,
             },
           ],
         };
