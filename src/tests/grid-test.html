@@ -18,7 +18,7 @@
         
         .grid {
             display: grid;
-            gap: 1px;
+            gap: 0px;
             background: #111;
             height: 100vh;
             width: 100vw;
@@ -26,7 +26,7 @@
         
         .grid-cell {
             background: #222;
-            border: 1px solid #333;
+            border: 0.5px solid #333;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -34,6 +34,7 @@
             font-size: 10px;
             color: #555;
             user-select: none;
+            box-sizing: border-box;
         }
         
         .grid-cell.target {
@@ -50,6 +51,30 @@
         .grid-cell.miss {
             background: #ff0000;
             color: #fff;
+        }
+        
+        .click-marker {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #ff00ff;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            transform: translate(-50%, -50%);
+        }
+        
+        .target-marker {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border: 3px solid #ffff00;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 999;
+            transform: translate(-50%, -50%);
+            background: transparent;
         }
         
         .stats {
@@ -82,16 +107,21 @@
     <div class="grid" id="grid"></div>
     
     <div class="stats" id="stats">
-        Test: <span id="currentTest">0</span>/10 | 
-        Hits: <span id="hits">0</span> | 
-        Accuracy: <span id="accuracy">0%</span>
+        <div>Mode: Single-Shot Testing | Test: <span id="currentTest">0</span></div>
+        <div id="debugInfo" style="margin-top: 5px; font-size: 12px;"></div>
+    </div>
+    
+    <div style="position: fixed; bottom: 20px; left: 20px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 5px; z-index: 2000;">
+        <button class="button" id="nextTarget" style="margin-right: 10px;">Generate New Target</button>
+        <button class="button" id="clearMarkers">Clear Markers</button>
+        <div style="margin-top: 10px; font-size: 12px; color: #ccc;">Click target to test accuracy</div>
     </div>
     
     <div class="final-score" id="finalScore">
         <div>Test Complete!</div>
-        <div>Final Accuracy: <span id="finalAccuracy">0%</span></div>
-        <div>Hits: <span id="finalHits">0</span>/10</div>
-        <div style="margin-top: 20px; font-size: 16px;">Click anywhere to restart</div>
+        <div>Test Results</div>
+        <div id="singleTestResult" style="font-size: 14px; margin-top: 10px; text-align: left;"></div>
+        <div style="margin-top: 20px; font-size: 16px;">Click 'Generate New Target' to continue</div>
     </div>
 
     <script>
@@ -99,14 +129,29 @@
             constructor() {
                 this.grid = document.getElementById('grid');
                 this.currentTest = 0;
-                this.hits = 0;
                 this.currentTarget = null;
                 this.isTestActive = false;
-                this.autoTestActive = false;
-                this.maxTests = 10;
+                this.clickMarkers = [];
+                this.targetMarker = null;
+                this.lastTestResult = null;
                 
                 this.initializeGrid();
-                this.startTest();
+                this.setupControls();
+            }
+            
+            setupControls() {
+                document.getElementById('nextTarget').addEventListener('click', () => {
+                    this.generateNewTarget();
+                });
+                
+                document.getElementById('clearMarkers').addEventListener('click', () => {
+                    this.clearAllMarkers();
+                });
+                
+                // Add global click handler to capture clicks between grid cells
+                document.addEventListener('click', (e) => {
+                    this.handleGlobalClick(e);
+                });
             }
             
             initializeGrid() {
@@ -131,10 +176,20 @@
                 }
             }
             
-            startTest() {
+            generateNewTarget() {
+                this.clearAllMarkers();
+                this.clearTestResults();
                 this.isTestActive = true;
-                this.autoTestActive = false; // Don't auto-click, wait for manual/MCP clicks
                 this.generateTarget();
+                this.currentTest++;
+                this.updateStats();
+            }
+            
+            clearTestResults() {
+                // Hide the test results popup
+                document.getElementById('finalScore').style.display = 'none';
+                // Clear the debug info
+                document.getElementById('debugInfo').textContent = '';
             }
             
             async runAutoTest() {
@@ -159,8 +214,6 @@
             }
             
             generateTarget() {
-                if (!this.isTestActive || this.currentTest >= this.maxTests) return;
-                
                 // Clear previous target
                 if (this.currentTarget) {
                     this.currentTarget.classList.remove('target');
@@ -172,129 +225,164 @@
                 });
                 
                 const cells = document.querySelectorAll('.grid-cell');
-                if (cells.length === 0) {
-                    this.endTest();
-                    return;
-                }
-                
                 const randomCell = cells[Math.floor(Math.random() * cells.length)];
                 randomCell.classList.add('target');
                 this.currentTarget = randomCell;
                 
-                // Don't increment test counter here - only on actual clicks
-                this.updateStats();
+                // Add visual target marker
+                this.addTargetMarker();
+                
+                document.getElementById('debugInfo').textContent = 'Target generated. Take screenshot, then click to test.';
+            }
+            
+            addTargetMarker() {
+                if (this.targetMarker) {
+                    this.targetMarker.remove();
+                }
+                
+                const rect = this.currentTarget.getBoundingClientRect();
+                const marker = document.createElement('div');
+                marker.className = 'target-marker';
+                marker.style.left = (rect.left + rect.width / 2) + 'px';
+                marker.style.top = (rect.top + rect.height / 2) + 'px';
+                document.body.appendChild(marker);
+                this.targetMarker = marker;
+            }
+            
+            handleGlobalClick(event) {
+                if (!this.isTestActive || !this.currentTarget) {
+                    return;
+                }
+                
+                // Skip if click was on control buttons
+                if (event.target.closest('.button') || event.target.closest('[style*="position: fixed"]')) {
+                    return;
+                }
+                
+                const clickX = event.clientX;
+                const clickY = event.clientY;
+                
+                // Find the closest grid cell to the click position
+                const cells = document.querySelectorAll('.grid-cell');
+                let closestCell = null;
+                let minDistance = Infinity;
+                
+                cells.forEach(cell => {
+                    const rect = cell.getBoundingClientRect();
+                    const cellCenterX = rect.left + rect.width / 2;
+                    const cellCenterY = rect.top + rect.height / 2;
+                    const distance = Math.sqrt(
+                        Math.pow(clickX - cellCenterX, 2) + 
+                        Math.pow(clickY - cellCenterY, 2)
+                    );
+                    
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestCell = cell;
+                    }
+                });
+                
+                if (closestCell) {
+                    this.processCellClick(closestCell, clickX, clickY);
+                }
             }
             
             handleCellClick(event, row, col) {
-                if (!this.isTestActive) {
-                    if (this.currentTest >= this.maxTests) {
-                        // Restart test
-                        this.resetTest();
-                    }
+                if (!this.isTestActive || !this.currentTarget) {
                     return;
                 }
                 
                 const cell = event.target;
+                const clickX = event.clientX;
+                const clickY = event.clientY;
                 
-                if (cell === this.currentTarget) {
-                    this.handleHit(cell);
+                this.processCellClick(cell, clickX, clickY);
+            }
+            
+            processCellClick(cell, clickX, clickY) {
+                const targetRect = this.currentTarget.getBoundingClientRect();
+                const targetX = targetRect.left + targetRect.width / 2;
+                const targetY = targetRect.top + targetRect.height / 2;
+                
+                const deltaX = clickX - targetX;
+                const deltaY = clickY - targetY;
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                const isHit = cell === this.currentTarget;
+                
+                // Add click marker at actual click position
+                this.addClickMarker(clickX, clickY, isHit);
+                
+                // Store detailed result
+                this.lastTestResult = {
+                    test: this.currentTest,
+                    targetX: Math.round(targetX),
+                    targetY: Math.round(targetY),
+                    clickedX: Math.round(clickX),
+                    clickedY: Math.round(clickY),
+                    deltaX: Math.round(deltaX),
+                    deltaY: Math.round(deltaY),
+                    distance: Math.round(distance),
+                    hit: isHit
+                };
+                
+                // Mark cells
+                if (isHit) {
+                    cell.classList.add('hit');
                 } else {
-                    this.handleMiss(cell);
+                    cell.classList.add('miss');
+                }
+                
+                // Display results immediately
+                this.displayTestResult();
+                this.isTestActive = false;
+            }
+            
+            addClickMarker(x, y, isHit) {
+                const marker = document.createElement('div');
+                marker.className = 'click-marker';
+                marker.style.left = x + 'px';
+                marker.style.top = y + 'px';
+                marker.style.background = isHit ? '#00ff00' : '#ff00ff';
+                document.body.appendChild(marker);
+                this.clickMarkers.push(marker);
+            }
+            
+            clearAllMarkers() {
+                this.clickMarkers.forEach(marker => marker.remove());
+                this.clickMarkers = [];
+                if (this.targetMarker) {
+                    this.targetMarker.remove();
+                    this.targetMarker = null;
                 }
             }
             
-            handleHit(cell) {
-                cell.classList.remove('target');
-                cell.classList.add('hit');
-                this.hits++;
-                this.currentTest++; // Increment test counter on actual click
-                this.currentTarget = null;
-                this.updateStats();
+            displayTestResult() {
+                if (!this.lastTestResult) return;
                 
-                if (this.currentTest >= this.maxTests) {
-                    this.endTest();
-                } else {
-                    setTimeout(() => {
-                        this.generateTarget();
-                        // Don't auto-run test - wait for next click
-                    }, 800);
-                }
+                const r = this.lastTestResult;
+                const resultHtml = `
+                    <strong>Test ${r.test} Results:</strong><br>
+                    Target: (${r.targetX}, ${r.targetY})<br>
+                    Click: (${r.clickedX}, ${r.clickedY})<br>
+                    Offset: ΔX:${r.deltaX} ΔY:${r.deltaY}<br>
+                    Distance: ${r.distance}px<br>
+                    Result: ${r.hit ? '✅ HIT' : '❌ MISS'}
+                `;
+                
+                document.getElementById('singleTestResult').innerHTML = resultHtml;
+                document.getElementById('finalScore').style.display = 'block';
+                
+                // Update debug info
+                document.getElementById('debugInfo').innerHTML = 
+                    `Last test: ${r.hit ? 'HIT' : 'MISS'} - Distance off: ${r.distance}px`;
             }
             
-            handleMiss(cell) {
-                if (cell === this.currentTarget) {
-                    cell.classList.remove('target');
-                    cell.classList.add('miss');
-                    this.currentTest++; // Increment test counter on actual click (miss)
-                    this.currentTarget = null;
-                    this.updateStats();
-                    
-                    if (this.currentTest >= this.maxTests) {
-                        this.endTest();
-                    } else {
-                        setTimeout(() => {
-                            this.generateTarget();
-                            // Don't auto-run test - wait for next click
-                        }, 800);
-                    }
-                } else {
-                    // Clicked wrong cell (not the target) - count as miss
-                    cell.classList.add('miss');
-                    this.currentTest++; // Increment test counter on actual click (wrong cell)
-                    this.updateStats();
-                    
-                    if (this.currentTest >= this.maxTests) {
-                        this.endTest();
-                    } else {
-                        setTimeout(() => {
-                            this.generateTarget();
-                            // Don't auto-run test - wait for next click
-                        }, 800);
-                    }
-                }
-            }
             
             updateStats() {
                 document.getElementById('currentTest').textContent = this.currentTest;
-                document.getElementById('hits').textContent = this.hits;
-                
-                const accuracy = this.currentTest > 0 ? 
-                    Math.round((this.hits / this.currentTest) * 100) : 0;
-                document.getElementById('accuracy').textContent = accuracy + '%';
             }
             
-            resetTest() {
-                this.isTestActive = false;
-                this.autoTestActive = false;
-                this.currentTest = 0;
-                this.hits = 0;
-                this.currentTarget = null;
-                
-                document.getElementById('finalScore').style.display = 'none';
-                
-                // Clear all cell states
-                document.querySelectorAll('.grid-cell').forEach(cell => {
-                    cell.classList.remove('target', 'hit', 'miss');
-                });
-                
-                this.updateStats();
-                
-                // Restart after a short delay
-                setTimeout(() => this.startTest(), 1000);
-            }
             
-            endTest() {
-                this.isTestActive = false;
-                this.autoTestActive = false;
-                
-                const accuracy = this.currentTest > 0 ? Math.round((this.hits / this.currentTest) * 100) : 0;
-                
-                document.getElementById('finalAccuracy').textContent = accuracy + '%';
-                document.getElementById('finalHits').textContent = `${this.hits}/${this.currentTest}`;
-                document.getElementById('finalScore').style.display = 'block';
-                
-                console.log(`Test Complete! Score: ${this.hits}/${this.currentTest} (${accuracy}%)`);
-            }
             
             sleep(ms) {
                 return new Promise(resolve => setTimeout(resolve, ms));

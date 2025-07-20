@@ -74,8 +74,8 @@ class CursorOverlay : Form
                     {
                         if (int.TryParse(coords[0], out int x) && int.TryParse(coords[1], out int y))
                         {
-                            // Offset the form position so the cursor tip appears at the target coordinates
-                            // Position form with offset to ensure cursor is fully visible
+                            // Position form so the cursor tip appears exactly at the target coordinates
+                            // Offset by cursor drawing offset so tip aligns with target
                             Point newTarget = new Point(x - 5, y - 5);
                             if (newTarget != targetPosition)
                             {

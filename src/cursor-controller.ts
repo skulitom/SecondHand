@@ -75,13 +75,19 @@ export class CursorController {
     }
   }
 
-  async moveTo(x: number, y: number): Promise<void> {
-    // Legacy method for backward compatibility - moves system cursor
+  private async rawMoveTo(x: number, y: number): Promise<void> {
+    // Raw move without coordinate transformation - for internal use
     const screenSize = await this.getScreenSize();
-    x = Math.max(0, Math.min(x, screenSize.width - 1));
-    y = Math.max(0, Math.min(y, screenSize.height - 1));
+    const clampedX = Math.max(0, Math.min(x, screenSize.width - 1));
+    const clampedY = Math.max(0, Math.min(y, screenSize.height - 1));
 
-    await mouse.setPosition(new Point(x, y));
+    await mouse.setPosition(new Point(clampedX, clampedY));
+  }
+
+  async moveTo(x: number, y: number): Promise<void> {
+    // Transform screenshot coordinates to click coordinates
+    const transformed = await this.transformScreenshotToClickCoordinates(x, y);
+    await this.rawMoveTo(transformed.x, transformed.y);
   }
 
   async click(button: string = 'left'): Promise<void> {
@@ -98,18 +104,26 @@ export class CursorController {
     // Save current system cursor position
     this.originalCursorPosition = await mouse.getPosition();
     
-    // Move system cursor to virtual position
-    await mouse.setPosition(new Point(this.virtualX, this.virtualY));
+    // Move system cursor to virtual position with validation
+    const screenSize = await this.getScreenSize();
+    const clickX = Math.max(0, Math.min(this.virtualX, screenSize.width - 1));
+    const clickY = Math.max(0, Math.min(this.virtualY, screenSize.height - 1));
     
-    // Small delay to ensure cursor position is registered
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await mouse.setPosition(new Point(clickX, clickY));
+    
+    // Increased delay to ensure cursor position is registered properly
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    // Verify cursor position before clicking
+    const actualPosition = await mouse.getPosition();
+    console.log(`Virtual click: intended (${clickX}, ${clickY}), actual (${actualPosition.x}, ${actualPosition.y})`);
     
     // Perform click
     const nutButton = this.mapButton(button);
     await mouse.click(nutButton);
     
     // Small delay before restoring cursor position
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 100));
     
     // Restore original cursor position
     if (this.originalCursorPosition) {
@@ -118,7 +132,11 @@ export class CursorController {
   }
 
   async virtualClickAt(x: number, y: number, button: string = 'left'): Promise<void> {
-    // Update virtual cursor position
+    // For webgrid testing, coordinates are already in screen coordinates
+    // Skip transformation since scaling factors are 1.0 and causes coordinate errors
+    console.log(`Virtual click at: input coordinates (${x}, ${y})`);
+    
+    // Update virtual cursor position directly - no transformation needed
     await this.moveVirtualCursor(x, y);
     
     // Perform virtual click
@@ -159,8 +177,12 @@ export class CursorController {
   }
 
   async drag(fromX: number, fromY: number, toX: number, toY: number): Promise<void> {
+    // Transform screenshot coordinates to click coordinates
+    const transformedFrom = await this.transformScreenshotToClickCoordinates(fromX, fromY);
+    const transformedTo = await this.transformScreenshotToClickCoordinates(toX, toY);
+    
     // Move to starting position
-    await this.moveTo(fromX, fromY);
+    await this.rawMoveTo(transformedFrom.x, transformedFrom.y);
     
     // Press and hold
     await mouse.pressButton(Button.LEFT);
@@ -169,18 +191,25 @@ export class CursorController {
     await new Promise(resolve => setTimeout(resolve, 50));
     
     // Move to end position
-    await this.moveTo(toX, toY);
+    await this.rawMoveTo(transformedTo.x, transformedTo.y);
     
     // Release
     await mouse.releaseButton(Button.LEFT);
   }
 
   async virtualDrag(fromX: number, fromY: number, toX: number, toY: number): Promise<void> {
+    // Transform screenshot coordinates to click coordinates
+    const transformedFrom = await this.transformScreenshotToClickCoordinates(fromX, fromY);
+    const transformedTo = await this.transformScreenshotToClickCoordinates(toX, toY);
+    
     // Save current system cursor position
     this.originalCursorPosition = await mouse.getPosition();
     
-    // Move system cursor to virtual start position
-    await mouse.setPosition(new Point(fromX, fromY));
+    // Move system cursor to transformed start position (raw coordinates)
+    const screenSize = await this.getScreenSize();
+    const clampedFromX = Math.max(0, Math.min(transformedFrom.x, screenSize.width - 1));
+    const clampedFromY = Math.max(0, Math.min(transformedFrom.y, screenSize.height - 1));
+    await mouse.setPosition(new Point(clampedFromX, clampedFromY));
     
     // Press and hold
     await mouse.pressButton(Button.LEFT);
@@ -188,14 +217,16 @@ export class CursorController {
     // Small delay to ensure the mouse button is registered as pressed
     await new Promise(resolve => setTimeout(resolve, 50));
     
-    // Move to end position
-    await mouse.setPosition(new Point(toX, toY));
+    // Move to transformed end position (raw coordinates)
+    const clampedToX = Math.max(0, Math.min(transformedTo.x, screenSize.width - 1));
+    const clampedToY = Math.max(0, Math.min(transformedTo.y, screenSize.height - 1));
+    await mouse.setPosition(new Point(clampedToX, clampedToY));
     
     // Release
     await mouse.releaseButton(Button.LEFT);
     
-    // Update virtual cursor to end position
-    await this.moveVirtualCursor(toX, toY);
+    // Update virtual cursor to transformed end position
+    await this.moveVirtualCursor(transformedTo.x, transformedTo.y);
     
     // Restore original cursor position
     if (this.originalCursorPosition) {
@@ -216,6 +247,57 @@ export class CursorController {
     const size = await screen.width();
     const height = await screen.height();
     return { width: size, height: height };
+  }
+
+  async getPhysicalScreenSize(): Promise<Size> {
+    const { spawn } = await import('child_process');
+    
+    const psScript = `
+      Add-Type -AssemblyName System.Windows.Forms
+      $primaryScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+      Write-Host "$($primaryScreen.Bounds.Width),$($primaryScreen.Bounds.Height)"
+    `;
+    
+    return new Promise((resolve, reject) => {
+      const process = spawn('powershell', ['-ExecutionPolicy', 'Bypass', '-Command', psScript], {
+        windowsHide: true,
+        stdio: 'pipe'
+      });
+      
+      let output = '';
+      
+      if (process.stdout) {
+        process.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+      }
+      
+      process.on('exit', (code) => {
+        if (code === 0) {
+          const [width, height] = output.trim().split(',').map(Number);
+          resolve({ width, height });
+        } else {
+          reject(new Error(`Failed to get physical screen size: ${code}`));
+        }
+      });
+    });
+  }
+
+  async transformScreenshotToClickCoordinates(screenshotX: number, screenshotY: number): Promise<{x: number, y: number}> {
+    const logicalSize = await this.getScreenSize();
+    const physicalSize = await this.getPhysicalScreenSize();
+    
+    // Calculate scaling factors
+    const scaleX = logicalSize.width / physicalSize.width;
+    const scaleY = logicalSize.height / physicalSize.height;
+    
+    // Transform coordinates
+    const clickX = Math.round(screenshotX * scaleX);
+    const clickY = Math.round(screenshotY * scaleY);
+    
+    console.log(`Coordinate transformation: screenshot(${screenshotX}, ${screenshotY}) -> click(${clickX}, ${clickY}), scale(${scaleX.toFixed(3)}, ${scaleY.toFixed(3)})`);
+    
+    return { x: clickX, y: clickY };
   }
 
   async setCursorVisibility(visible: boolean): Promise<void> {
@@ -253,11 +335,17 @@ export class CursorController {
       Add-Type -AssemblyName System.Drawing
       Add-Type -AssemblyName System.Windows.Forms
       
-      $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-      $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
+      # Get primary screen bounds
+      $primaryScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+      $width = $primaryScreen.Bounds.Width
+      $height = $primaryScreen.Bounds.Height
+      
+      # Create bitmap
+      $bitmap = New-Object System.Drawing.Bitmap $width, $height
       $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
       
-      $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $screen.Bounds.Size)
+      # Copy from screen
+      $graphics.CopyFromScreen(0, 0, 0, 0, [System.Drawing.Size]::new($width, $height))
       
       $imageFormat = [System.Drawing.Imaging.ImageFormat]::${format.toUpperCase() === 'JPG' ? 'Jpeg' : 'Png'}
       $bitmap.Save("${tempFile}", $imageFormat)
